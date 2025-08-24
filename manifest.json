@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "FontSeek",
+  "short_name": "FontSeek",
+  "version": "1.0",
+  "description": "Pick any text on a page to inspect real font details. Clean UI, CSP-safe, and lightweight.",
+  "action": {
+    "default_title": "FontSeek — pick a font on the page",
+    "default_icon": {
+      "16": "assets/icons/icon16.png",
+      "48": "assets/icons/icon48.png",
+      "128": "assets/icons/icon128.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "permissions": [
+    "scripting",
+    "activeTab"
+  ],
+  "icons": {
+    "16": "assets/icons/icon16.png",
+    "48": "assets/icons/icon48.png",
+    "128": "assets/icons/icon128.png"
+  },
+  "minimum_chrome_version": "114",
+  "offline_enabled": true,
+  "homepage_url": "https://github.com/wahibirawan/fontseek"
+}
