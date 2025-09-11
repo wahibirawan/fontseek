@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "FontSeek",
   "short_name": "FontSeek",
-  "version": "1.0",
+  "version": "1.0.1",
   "description": "Pick any text on a page to inspect real font details. Clean UI, CSP-safe, and lightweight.",
   "action": {
     "default_title": "FontSeek — pick a font on the page",
