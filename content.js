@@ -6,7 +6,6 @@
  * - Exit via the floating pill or press ESC.
  * 
  * No external dependencies. MV3-ready.
- * (c) You — licensed for your own project. 
  */
 (() => {
   // prevent double activation
@@ -482,7 +481,7 @@
       btn.addEventListener("click", (ev) => {
         ev.stopPropagation();
         const q = familyResolved;
-        window.open(`https://www.google.com/search?q=${encodeURIComponent(q)}`, "_blank", "noopener");
+        window.open(`https://www.google.com/search?q=${encodeURIComponent(q)}+font`, "_blank", "noopener");
       });
 
       tdV.appendChild(nameSpan);
