@@ -3,6 +3,7 @@
 A lightweight, professional font inspector for Chromium-based browsers. Click the extension icon, then click any text on the page to reveal its font details in a premium, modern popup.
 
 **📦 Available on Edge:** [Microsoft Edge Add-ons](https://microsoftedge.microsoft.com/addons/detail/fontseek/dchnegjfaggohalaaenlblbbmljlhlai)
+
 **📦 Dev Mode / Test Mode:** [Download ZIP File](https://github.com/wahibirawan/fontseek/releases/download/v1.2/FontSeek_v1.2.zip)
 
 ## Features
