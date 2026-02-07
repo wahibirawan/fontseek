@@ -1,5 +1,6 @@
 chrome.action.onClicked.addListener(async (tab) => {
-  if (!tab?.id) return;
+  if (!tab?.id || !tab.url) return;
+  if (/^(chrome|edge|about|mozilla):/.test(tab.url)) return;
   try {
     await chrome.scripting.executeScript({
       target: { tabId: tab.id, allFrames: false },
