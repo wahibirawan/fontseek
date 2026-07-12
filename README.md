@@ -1,55 +1,67 @@
-# FontSeek (v1.2)
+# FontSeek (v1.3)
 
-A lightweight, professional font inspector for Chromium-based browsers. Click the extension icon, then click any text on the page to reveal its font details in a premium, modern popup.
+FontSeek is a lightweight, professional font inspector for Chromium-based browsers. Clicking the extension icon and selecting any text on a page reveals its font details in a modern, frosted glass popup.
 
-**📦 Available on Edge:** [Microsoft Edge Add-ons](https://microsoftedge.microsoft.com/addons/detail/fontseek/dchnegjfaggohalaaenlblbbmljlhlai)
+The extension is available for download on the [Microsoft Edge Add-ons Store](https://microsoftedge.microsoft.com/addons/detail/fontseek/dchnegjfaggohalaaenlblbbmljlhlai).
 
-**📦 Dev Mode / Test Mode:** [Download ZIP File](https://github.com/wahibirawan/fontseek/releases/download/v1.2/FontSeek_v1.2.zip)
+Development Version [Download for Chromium Based Browsers](https://github.com/wahibirawan/fontseek/releases).
 
 ## Features
-- **🎯 Precision Font Detection**: Identifies the *actual* rendered font, even when the browser falls back to system defaults (e.g., detects "Segoe UI" instead of "Roboto" on Windows if Roboto is missing).
-- **📚 All Fonts View**: Browse all fonts used on a page with the "All Fonts" button — shows font contexts (Heading, Body, Nav, etc.) and weights.
-- **🎨 Advanced Color Engine**: Uses Canvas API to resolve *any* modern CSS color format (`lab`, `oklch`, `display-p3`, etc.) into standard HEX/RGB.
-- **💎 Premium Glass UI**: A beautiful, dark glassmorphism interface with tactile buttons and smooth animations.
-- **📋 Multi-Format Copy**: Dedicated buttons to copy colors in **HEX**, **RGB**, **HSL**, and **CMYK**.
-- **🔍 Smart Inspection**: Shows Weight (with name), Style, Size, Line Height, Letter Spacing, and Decoration.
-- **🔒 CSP-Safe & Lightweight**: Built with Shadow DOM and zero `innerHTML` usage for maximum security and performance. Zero external dependencies.
 
-## How to use (Development)
-1. Go to Edge/Chrome Extensions (`edge://extensions` or `chrome://extensions`).
-2. Enable **Developer mode**.
-3. Click **Load unpacked** and select this folder.
-4. Pin **FontSeek**, then click its icon to start picking.
-5. Click any text to inspect. Press **ESC** or click the **Exit** pill to stop.
-6. Use **"All Fonts"** button to see all fonts on the page at once.
+*   **Precision Font Detection**: Identifies the actual rendered font, even when the browser falls back to system defaults. For example, it detects Segoe UI instead of Roboto on Windows if Roboto is not installed on the system.
+*   **All Fonts View**: Browse all fonts used on a page via the All Fonts panel. It displays font contexts such as Heading, Body, Nav, and Button along with font weights.
+*   **Advanced Color Engine**: Resolves modern CSS color formats (including lab, oklch, and display-p3) into standard HEX and RGB formats using the Canvas API.
+*   **Tactile User Interface**: A modern interface featuring a dark glassmorphism card with responsive controls and smooth transitions.
+*   **Multi-Format Copy**: Quick-copy buttons to copy colors in HEX, RGB, HSL, and CMYK formats.
+*   **Style Inspection**: Shows font weight, style, size, line height, letter spacing, and text decoration.
+*   **CSP-Safe and Self-Contained**: Built using Shadow DOM and clean DOM manipulation without unsafe innerHTML rendering. It has zero external dependencies.
+
+## Installation for Developers
+
+1. Open the Extensions settings in Chrome or Edge (at `chrome://extensions` or `edge://extensions`).
+2. Turn on the **Developer mode** toggle.
+3. Click **Load unpacked** and select this directory.
+4. Pin the FontSeek extension to the toolbar, then click its icon to start picking.
+5. Click any text to inspect. Press the **Escape** key or click the exit button to stop.
+6. Use the **All Fonts** button to scan all fonts on the page.
 
 ## Permissions
-- `activeTab` + `scripting`: Required to inject the inspection engine into the current tab only when you activate it.
+
+*   `activeTab` and `scripting`: Required to load and run the inspection engine on the current tab only when explicitly clicked.
 
 ## Privacy
-- We do **not** collect, store, or transmit any user data. Everything runs locally in your browser.
+
+FontSeek does not collect, store, or transmit any user data. All processing occurs locally within your browser context. For more details, refer to [PRIVACY.md](PRIVACY.md).
 
 ## License
+
 MIT License © 2026 Wahib Irawan
 
-## Change Notes
-### v1.2 - February 8, 2026
-- **🆕 "All Fonts" popup**: View all fonts used on a page with context tags (Heading, Body, Nav, Button, etc.).
-- **💎 Premium Glassmorphism UI**: Redesigned popup with frosted glass effect, tactile buttons, and smooth animations.
-- **🔧 CSP Compatibility**: Fixed popup visibility on strict CSP sites (Shopify, Framer, etc.).
-- **📍 Improved Positioning**: Popup now correctly positioned within viewport on all sites.
-- **🎭 Toolbar Auto-hide**: Toolbar hides when All Fonts popup is open, restores on close.
+## Changelog
 
-### v1.1 - Previous
-- Enhanced font detection for modern sites (Shopify, Framer, Webflow).
-- Multi-strategy font resolution with CSS variables and @font-face scanning.
+### v1.3
+*   Transitioned to a Hybrid Click-Shield System, replacing the full-screen transparent overlay. The browser now handles page scrolling 100% natively, eliminating all scroll lag and redraw flicker on resource-heavy animated sites.
+*   Implemented Range-Based Text Bounding Highlights. Visual highlights (both hover preview and click selection) now wrap strictly around the text node dimensions, excluding adjacent SVGs, icons, and button paddings.
+*   Refactored the element inspection picker to resolve layout containers (such as navigation wrappers, button nodes, and anchors) to their innermost text-bearing child nodes.
+*   Removed the automatic All Fonts view fallback completely to prevent unexpected popup overlays. The All Fonts view is now strictly triggered on-demand by clicking the All Fonts button.
 
-### v1.0.1 - September 11, 2025
-- Change search engine to Bing.com (Microsoft Edge).
-- Improved font search result.
+### v1.2
+*   Added the All Fonts panel to inspect all fonts on a page with context tags.
+*   Redesigned the card with a glassmorphism interface and improved transitions.
+*   Fixed popup rendering on strict Content Security Policy (CSP) sites such as Shopify and Framer.
+*   Corrected popup boundaries to keep it visible inside the viewport boundaries on all websites.
+*   Disabled automatic panel popups; the All Fonts list now only opens when clicked.
 
-### v1.0 - Initial Release
-- Accurate font resolution with OS alias handling.
-- Font details: Family, Style, Weight, Size, Letter Spacing, Line Height, Color.
-- Color swatch with multi-format copy.
-- CSP-safe Shadow DOM UI.
+### v1.1
+*   Enhanced font resolution and event capturing for modern sites including Shopify, Framer, and Webflow.
+*   Improved multi-strategy font resolution using CSS variables and font-face scanning.
+
+### v1.0.1
+*   Changed font search redirection to Bing.com.
+*   Improved font search results formatting.
+
+### v1.0
+*   Initial release.
+*   Added basic font detail resolution (Family, Style, Weight, Size, Letter Spacing, Line Height, Color).
+*   Added color swatch with multi-format color copying.
+*   Designed the secure Shadow DOM user interface.

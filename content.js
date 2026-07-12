@@ -10,11 +10,20 @@
 
   // globals
   let exitEl, highlightEl;
-  let clickHandler, keyHandler;
+  let keyHandler, mouseMoveHandler, windowClickHandler;
   let lastClick = { x: 24, y: 24 };
 
   // popup (shadow)
   let popupHost = null, popupRoot = null, popupCard = null, rowsEl = null;
+
+  // Hybrid Click-Shield / Hover System
+  let hoverHighlightEl = null;
+  let selfDefenseObserver = null;
+  let pointerEventsStyleEl = null;
+
+  // Save native event methods before patching
+  const nativeStopProp = Event.prototype.stopPropagation;
+  const nativeStopImmediate = Event.prototype.stopImmediatePropagation;
 
   // DOM Utils
   const isTextual = (el) => {
@@ -98,6 +107,38 @@
     return false;
   };
 
+  // Check if an element is a proper text container or target (distinguish Font vs Layout Container)
+  const isTextualTarget = (el) => {
+    if (!el || el.nodeType !== 1) return false;
+    const cs = getComputedStyle(el);
+    if (cs.display === "none" || cs.fontSize === "0px") return false;
+    if (isOverlayElement(el)) return false;
+
+    const tag = el.tagName?.toLowerCase();
+    const textTags = new Set(["p", "span", "h1", "h2", "h3", "h4", "h5", "h6", "a", "li", "button", "label", "strong", "em", "b", "i", "code", "pre"]);
+    if (textTags.has(tag) && hasAnyText(el)) return true;
+
+    if (hasDirectText(el)) return true;
+
+    return false;
+  };
+
+  // Resolve to the innermost descendant that has direct text nodes
+  const getInnermostTextElement = (el) => {
+    if (!el) return null;
+    
+    if (hasDirectText(el)) return el;
+
+    const children = Array.from(el.querySelectorAll("*"));
+    for (const child of children) {
+      if (hasDirectText(child) && isTextual(child) && !isOverlayElement(child)) {
+        return child;
+      }
+    }
+
+    return el;
+  };
+
   // Score an element for how likely it is to be the target text
   const scoreTextElement = (el, x, y) => {
     if (!el || !isTextual(el)) return -1;
@@ -139,25 +180,29 @@
   // Enhanced findTextElement with multi-strategy fallback chain
   const findTextElement = (start, x, y) => {
     usedForcedMode = false;
+    let resolved = null;
 
-    // Strategy 1: Standard ascent from start element (if it has direct text)
+    // Strategy 1: Standard ascent from start element (if it is a textual target)
     let el = start;
     for (let i = 0; i < 8 && el; i++) {
-      if (isTextual(el) && hasDirectText(el) && !isOverlayElement(el)) return el;
+      if (isTextualTarget(el)) {
+        resolved = el;
+        break;
+      }
       el = ascend(el);
     }
 
     // Strategy 2: Caret-based detection (most accurate for text)
-    if (typeof x === "number" && typeof y === "number") {
+    if (!resolved && typeof x === "number" && typeof y === "number") {
       const caretEl = getElementFromCaret(x, y);
-      if (caretEl && isTextual(caretEl) && !isOverlayElement(caretEl)) {
+      if (caretEl && isTextualTarget(caretEl)) {
         usedForcedMode = true;
-        return caretEl;
+        resolved = caretEl;
       }
     }
 
     // Strategy 3: Score ALL elements at point, pick the best one
-    if (typeof x === "number" && typeof y === "number" && document.elementsFromPoint) {
+    if (!resolved && typeof x === "number" && typeof y === "number" && document.elementsFromPoint) {
       const elements = document.elementsFromPoint(x, y);
       let bestEl = null;
       let bestScore = -1;
@@ -176,31 +221,34 @@
 
       if (bestEl && bestScore > 0) {
         usedForcedMode = true;
-        return bestEl;
+        resolved = bestEl;
       }
     }
 
     // Strategy 4: Deep Shadow DOM pierce
-    if (typeof x === "number" && typeof y === "number") {
+    if (!resolved && typeof x === "number" && typeof y === "number") {
       const deepEl = deepElementFromPoint(x, y);
-      if (deepEl && isTextual(deepEl) && hasAnyText(deepEl) && !isOverlayElement(deepEl)) {
+      if (deepEl && isTextualTarget(deepEl)) {
         usedForcedMode = true;
-        return deepEl;
+        resolved = deepEl;
       }
 
-      // Ascend from deep element
-      el = deepEl;
-      for (let i = 0; i < 8 && el; i++) {
-        if (isTextual(el) && hasDirectText(el) && !isOverlayElement(el)) {
-          usedForcedMode = true;
-          return el;
+      if (!resolved) {
+        // Ascend from deep element
+        el = deepEl;
+        for (let i = 0; i < 8 && el; i++) {
+          if (isTextualTarget(el)) {
+            usedForcedMode = true;
+            resolved = el;
+            break;
+          }
+          el = ascend(el);
         }
-        el = ascend(el);
       }
     }
 
     // Strategy 5: Find closest visible text element to click point
-    if (typeof x === "number" && typeof y === "number") {
+    if (!resolved && typeof x === "number" && typeof y === "number") {
       const allTextElements = document.querySelectorAll("p, span, h1, h2, h3, h4, h5, h6, a, li, button, label");
       let closestEl = null;
       let closestDist = Infinity;
@@ -221,18 +269,24 @@
 
       if (closestEl) {
         usedForcedMode = true;
-        return closestEl;
+        resolved = closestEl;
       }
     }
 
     // Fallback: return original start with basic text check
-    el = start;
-    for (let i = 0; i < 8 && el; i++) {
-      if (isTextual(el) && hasAnyText(el)) return el;
-      el = ascend(el);
+    if (!resolved) {
+      el = start;
+      for (let i = 0; i < 8 && el; i++) {
+        if (isTextual(el) && hasAnyText(el)) {
+          resolved = el;
+          break;
+        }
+        el = ascend(el);
+      }
     }
 
-    return start;
+    const finalEl = resolved || start;
+    return getInnermostTextElement(finalEl);
   };
 
   // ========== ULTRA-AGGRESSIVE FONT DETECTION ==========
@@ -849,6 +903,38 @@
     return { vw, vh, sx, sy };
   };
 
+  // Helper to measure exact text nodes' bounding rect (excluding icons/chevrons and excessive paddings)
+  const getTextBoundingRect = (el) => {
+    if (!el) return null;
+    try {
+      const range = document.createRange();
+      let hasTextNode = false;
+
+      const walk = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null);
+      let node;
+      let firstNode = null;
+      let lastNode = null;
+
+      while (node = walk.nextNode()) {
+        if ((node.nodeValue || "").trim().length > 0) {
+          if (!firstNode) firstNode = node;
+          lastNode = node;
+          hasTextNode = true;
+        }
+      }
+
+      if (hasTextNode && firstNode && lastNode) {
+        range.setStart(firstNode, 0);
+        range.setEnd(lastNode, lastNode.nodeValue.length);
+        const rect = range.getBoundingClientRect();
+        if (rect.width > 0 && rect.height > 0) {
+          return rect;
+        }
+      }
+    } catch { }
+    return el.getBoundingClientRect();
+  };
+
   // Highlight
   const showHighlight = (el) => {
     if (!highlightEl) {
@@ -862,13 +948,250 @@
       });
       document.documentElement.appendChild(highlightEl);
     }
-    const r = el.getBoundingClientRect();
+    const r = getTextBoundingRect(el);
     const { sx, sy } = getViewport();
     highlightEl.style.left = `${r.left + sx - 4}px`;
     highlightEl.style.top = `${r.top + sy - 4}px`;
     highlightEl.style.width = `${r.width + 8}px`;
     highlightEl.style.height = `${r.height + 8}px`;
     setTimeout(() => { highlightEl?.remove(); highlightEl = null; }, 1000);
+  };
+
+  // ========== HOVER HIGHLIGHT (real-time preview during picking) ==========
+  const showHoverHighlight = (el) => {
+    if (!hoverHighlightEl) {
+      hoverHighlightEl = document.createElement("div");
+      hoverHighlightEl.id = "fs-hover-highlight";
+      Object.assign(hoverHighlightEl.style, {
+        position: "absolute", zIndex: "2147483644",
+        border: "2px dashed rgba(99,102,241,.6)", borderRadius: "6px",
+        background: "rgba(99,102,241,.06)",
+        pointerEvents: "none", transition: "all 0.08s ease-out"
+      });
+      document.documentElement.appendChild(hoverHighlightEl);
+    }
+    const r = getTextBoundingRect(el);
+    const { sx, sy } = getViewport();
+    hoverHighlightEl.style.left = `${r.left + sx - 3}px`;
+    hoverHighlightEl.style.top = `${r.top + sy - 3}px`;
+    hoverHighlightEl.style.width = `${r.width + 6}px`;
+    hoverHighlightEl.style.height = `${r.height + 6}px`;
+    hoverHighlightEl.style.display = "";
+  };
+  const hideHoverHighlight = () => {
+    if (hoverHighlightEl) hoverHighlightEl.style.display = "none";
+  };
+
+  // ========== THROTTLE UTILITY ==========
+  const throttle = (fn, ms) => {
+    let last = 0, timer = null;
+    return function(...args) {
+      const now = Date.now();
+      if (now - last >= ms) {
+        last = now;
+        fn.apply(this, args);
+      } else {
+        clearTimeout(timer);
+        timer = setTimeout(() => {
+          last = Date.now();
+          fn.apply(this, args);
+        }, ms - (now - last));
+      }
+    };
+  };
+
+  // ========== PIERCE TO TEXT ELEMENT ==========
+  // Recursively pierces through empty containers, invisible tracking overlays,
+  // and wrapper elements to locate the exact text node at a coordinate.
+  const pierceToTextElement = (x, y) => {
+    const modifiedElements = [];
+    let foundEl = null;
+    const maxDepth = 8;
+
+    for (let depth = 0; depth < maxDepth; depth++) {
+      const el = document.elementFromPoint(x, y);
+      if (!el || el === document.documentElement || el === document.body) {
+        foundEl = el;
+        break;
+      }
+
+      // Skip our own UI elements
+      if (el.id?.startsWith("fs-") || el.closest?.("#fs-exit")) {
+        modifiedElements.push({
+          element: el,
+          originalPointerEvents: el.style.pointerEvents
+        });
+        el.style.setProperty("pointer-events", "none", "important");
+        continue;
+      }
+
+      // If it is a proper textual target, we stop and use it
+      if (isTextualTarget(el)) {
+        foundEl = el;
+        break;
+      }
+
+      // If it is an overlay or doesn't have direct text, temporarily disable its pointer-events
+      // so we can pierce to the real content underneath
+      if (isOverlayElement(el) || !hasDirectText(el)) {
+        modifiedElements.push({
+          element: el,
+          originalPointerEvents: el.style.pointerEvents
+        });
+        el.style.setProperty("pointer-events", "none", "important");
+        continue;
+      }
+
+      foundEl = el;
+      break;
+    }
+
+    // Restore original pointer-events
+    for (const item of modifiedElements) {
+      if (item.originalPointerEvents) {
+        item.element.style.setProperty("pointer-events", item.originalPointerEvents);
+      } else {
+        item.element.style.removeProperty("pointer-events");
+      }
+    }
+
+    return foundEl || document.elementFromPoint(x, y);
+  };
+
+  // ========== HYBRID CLICK-SHIELD SYSTEM ==========
+  // We do NOT use a full-screen overlay to intercept clicks and scrolls anymore.
+  // Instead, the page scrolls natively with 100% smooth momentum scrolling.
+  // Click interception is handled by:
+  // 1. Hover highlight box (`fs-hover-highlight`) having `pointer-events: auto` (click-shield).
+  // 2. Global capture-phase click listener on window blocking other clicks.
+  const createHoverHighlight = () => {
+    if (!hoverHighlightEl) {
+      hoverHighlightEl = document.createElement("div");
+      hoverHighlightEl.id = "fs-hover-highlight";
+      Object.assign(hoverHighlightEl.style, {
+        position: "absolute", zIndex: "2147483644",
+        border: "2px dashed rgba(99,102,241,.6)", borderRadius: "6px",
+        background: "rgba(99,102,241,.06)",
+        pointerEvents: "auto", // Crucial: acts as local click shield over text
+        transition: "all 0.08s ease-out"
+      });
+
+      // Click on highlight -> inspect the currently hovered element
+      hoverHighlightEl.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (currentHoveredEl) {
+          inspectElement(currentHoveredEl, e.clientX, e.clientY);
+        }
+      });
+
+      // Wheel on highlight -> hide highlight so scroll gesture falls through natively to page
+      hoverHighlightEl.addEventListener("wheel", (e) => {
+        hideHoverHighlight();
+        currentHoveredEl = null;
+      });
+
+      document.documentElement.appendChild(hoverHighlightEl);
+    }
+  };
+
+  const destroyHoverHighlight = () => {
+    if (hoverHighlightEl) { hoverHighlightEl.remove(); hoverHighlightEl = null; }
+    currentHoveredEl = null;
+  };
+
+  let currentHoveredEl = null;
+
+  const onMouseMove = throttle((e) => {
+    if (!window.__FS_ACTIVE__) return;
+
+    const target = e.target;
+
+    // Check if hovering over our own UI or hover highlight
+    const path = typeof e.composedPath === "function" ? e.composedPath() : [];
+    const isOurUI = target.closest?.("#fs-exit") ||
+      target.closest?.("#fs-highlight") ||
+      (popupHost && popupHost.contains(target)) ||
+      (allFontsHost && allFontsHost.contains(target)) ||
+      path.some(el => el === popupHost || el === allFontsHost || el === exitEl || el === hoverHighlightEl);
+
+    if (isOurUI) return;
+
+    // Check if target is a textual element
+    const el = findTextElement(target, e.clientX, e.clientY);
+
+    if (el && isTextual(el) && hasAnyText(el) && !isOverlayElement(el) &&
+        el !== document.body && el !== document.documentElement) {
+      if (currentHoveredEl !== el) {
+        currentHoveredEl = el;
+        showHoverHighlight(el);
+      }
+    } else {
+      currentHoveredEl = null;
+      hideHoverHighlight();
+    }
+  }, 50);
+
+  const onWindowClick = (e) => {
+    if (!window.__FS_ACTIVE__) return;
+
+    // Check if click is on our UI
+    const path = typeof e.composedPath === "function" ? e.composedPath() : [];
+    const isOurUI = e.target.closest?.("#fs-exit") ||
+      e.target.closest?.("#fs-highlight") ||
+      (popupHost && popupHost.contains(e.target)) ||
+      (allFontsHost && allFontsHost.contains(e.target)) ||
+      path.some(el => el === popupHost || el === allFontsHost || el === exitEl || el === hoverHighlightEl);
+
+    if (isOurUI) return;
+
+    // Block the click from reaching the page
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  // ========== EVENT PROTOTYPE PATCHING (belt-and-suspenders) ==========
+  // Neuter stopPropagation/stopImmediatePropagation while FontSeek is active.
+  // Secondary defense: if a page script somehow bypasses the overlay, our
+  // window-level listeners will still fire because no script can kill propagation.
+  const patchEvents = () => {
+    Event.prototype.stopPropagation = function() {
+      if (window.__FS_ACTIVE__) return;
+      nativeStopProp.call(this);
+    };
+    Event.prototype.stopImmediatePropagation = function() {
+      if (window.__FS_ACTIVE__) return;
+      nativeStopImmediate.call(this);
+    };
+  };
+  const unpatchEvents = () => {
+    Event.prototype.stopPropagation = nativeStopProp;
+    Event.prototype.stopImmediatePropagation = nativeStopImmediate;
+  };
+
+  // ========== SELF-DEFENSE OBSERVER ==========
+  // Protect our overlay and UI from being removed by page scripts.
+  const startSelfDefense = () => {
+    selfDefenseObserver = new MutationObserver((mutations) => {
+      if (!window.__FS_ACTIVE__) return;
+      for (const m of mutations) {
+        for (const node of m.removedNodes) {
+          if (node === exitEl) {
+            try { document.documentElement.appendChild(exitEl); } catch { }
+          }
+        }
+      }
+    });
+    selfDefenseObserver.observe(document.documentElement, { childList: true });
+    if (document.body) {
+      selfDefenseObserver.observe(document.body, { childList: true });
+    }
+  };
+  const stopSelfDefense = () => {
+    if (selfDefenseObserver) {
+      selfDefenseObserver.disconnect();
+      selfDefenseObserver = null;
+    }
   };
 
   // Exit UI
@@ -1305,7 +1628,7 @@
       });
       const shadow = allFontsHost.attachShadow({ mode: "open" });
 
-      // CSS string - using style element instead of adoptedStyleSheets for CSP compatibility
+      // CSS string applied via adoptedStyleSheets for CSP bypass resilience
       const cssText = `
       /* Premium Glassmorphism & Tactile UI */
       :host { all: initial; display: block; pointer-events: auto; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif; }
@@ -1469,11 +1792,10 @@
       }
     `;
 
-      // Use style element instead of adoptedStyleSheets for better CSP compatibility
-      const styleEl = document.createElement('style');
-      styleEl.textContent = cssText;
-      shadow.appendChild(styleEl);
-      console.log('[FontSeek] Styles applied via style element');
+      const sheet = new CSSStyleSheet();
+      sheet.replaceSync(cssText);
+      shadow.adoptedStyleSheets = [sheet];
+      console.log('[FontSeek] Styles applied via adoptedStyleSheets');
 
       // Build the card
       const card = document.createElement("div");
@@ -1544,7 +1866,7 @@
 
           const nameSpan = document.createElement("span");
           nameSpan.textContent = font.name;
-          nameSpan.style.fontFamily = `"${font.name}", system - ui`;
+          nameSpan.style.fontFamily = `"${font.name}", system-ui`;
 
           nameRow.appendChild(indicator);
           nameRow.appendChild(nameSpan);
@@ -1600,16 +1922,21 @@
           }
 
           // Click to copy
-          item.addEventListener("click", (ev) => {
-            navigator.clipboard?.writeText(font.name).then(() => {
-              const toast = document.createElement("div");
-              toast.className = "toast";
-              toast.textContent = `Copied "${font.name}"`;
-              toast.style.left = (ev.clientX + 12) + "px";
-              toast.style.top = (ev.clientY + 12) + "px";
-              shadow.appendChild(toast);
-              setTimeout(() => toast.remove(), 1000);
-            });
+          item.addEventListener("click", async (ev) => {
+            try {
+              if (navigator.clipboard) {
+                await navigator.clipboard.writeText(font.name);
+                const toast = document.createElement("div");
+                toast.className = "toast";
+                toast.textContent = `Copied "${font.name}"`;
+                toast.style.left = (ev.clientX + 12) + "px";
+                toast.style.top = (ev.clientY + 12) + "px";
+                shadow.appendChild(toast);
+                setTimeout(() => toast.remove(), 1000);
+              }
+            } catch (err) {
+              console.error("Failed to copy font name:", err);
+            }
           });
 
           list.appendChild(item);
@@ -1721,7 +2048,6 @@
 
   // Detect if site is likely blocking font detection
   let isBlockedSiteDetected = null; // cache result
-  let failedClickCount = 0;
 
   const detectBlockedSite = () => {
     if (isBlockedSiteDetected !== null) return isBlockedSiteDetected;
@@ -1769,60 +2095,24 @@
     return isBlockedSiteDetected;
   };
 
-  // Interaction
-  const onInteraction = (e) => {
-    // Zombie check: if extension is inactive, do nothing (even if listener is still attached)
+  // ========== INSPECT ELEMENT (core detection + popup display) ==========
+  // Takes a raw element (from elementFromPoint via overlay) and coordinates.
+  // No event object dependency — overlay guarantees this always fires.
+  const inspectElement = (rawEl, x, y) => {
     if (!window.__FS_ACTIVE__) return;
 
-    // Robust UI detection - also check composedPath for Shadow DOM elements
-    const path = typeof e.composedPath === "function" ? e.composedPath() : [];
-    const isOurUI = e.target.closest("#fs-exit") ||
-      e.target.closest("#fs-highlight") ||
-      (popupHost && popupHost.contains(e.target)) ||
-      (allFontsHost && allFontsHost.contains(e.target)) ||
-      path.some(el => el === popupHost || el === allFontsHost || el === exitEl);
+    // Close any existing all-fonts popup
+    closeAllFontsPopup();
 
-    if (isOurUI) {
-      return;
-    }
-
-    // Block all interaction with the page
-    e.preventDefault();
-    e.stopPropagation();
-
-    // Only trigger inspection on click
-    if (e.type !== "click") return;
-
-
-    const base = path && path.length ? path[0] : e.target;
-
-    // Check if click is being intercepted by document-level elements
-    const isDocumentLevel = (
-      base === document.body ||
-      base === document.documentElement ||
-      base === document ||
-      (base && base.tagName === 'HTML') ||
-      (base && base.tagName === 'BODY')
-    );
-
-    // Check if target might be an invisible overlay (common in React/Next.js sites)
-    const isInvisibleOverlay = base && (
-      (base.style && (base.style.opacity === '0' || base.style.visibility === 'hidden' ||
-        base.style.pointerEvents === 'none')) ||
-      (base.className && typeof base.className === 'string' &&
-        (base.className.includes('overlay') || base.className.includes('modal') ||
-          base.className.includes('backdrop') || base.className.includes('__next')))
-    );
-
-    // Pass coordinates for fallback detection strategies
-    let el = findTextElement(base, e.clientX, e.clientY);
+    // Find the best text element using multi-strategy detection
+    let el = findTextElement(rawEl, x, y);
     let cs;
     let detectionFailed = false;
 
     if (el && isTextual(el) && el !== document.body && el !== document.documentElement) {
       cs = getComputedStyle(el);
     } else {
-      // Detection failed - element is not textual or is body/html
+      // Detection failed — element is not textual or is body/html
       el = document.body || document.documentElement;
       cs = getComputedStyle(el);
       detectionFailed = true;
@@ -1840,37 +2130,6 @@
     // Check for blocked site on first interaction
     const isBlocked = detectBlockedSite();
 
-    // Track failed clicks for auto-fallback
-    const clickFailed = detectionFailed || isDocumentLevel || isInvisibleOverlay;
-    if (clickFailed) {
-      failedClickCount++;
-      console.log('[FontSeek] Failed click count:', failedClickCount);
-    } else {
-      failedClickCount = 0; // reset on successful detection
-    }
-
-    // AUTO-FALLBACK: Trigger if:
-    // 1. Detection completely failed (no textual element found by any strategy)
-    // 2. Got a generic result while element is body
-    // 3. Click was intercepted AND detection failed
-    // 4. Target is clearly an invisible overlay
-    // 5. Known blocked site detected (show on first click)
-    // 6. Multiple consecutive failures (2+)
-    const shouldShowAllFonts = (
-      detectionFailed ||
-      (isGenericResult && el === document.body) ||
-      (isDocumentLevel && detectionFailed) ||
-      isInvisibleOverlay ||
-      (isBlocked && failedClickCount >= 1) ||  // Blocked site: trigger on first failed click
-      failedClickCount >= 2                     // Any site: trigger after 2 failed clicks
-    );
-
-    if (shouldShowAllFonts) {
-      console.log('[FontSeek] Auto-triggering All Fonts mode');
-      showAllFontsPopup(e.clientX, e.clientY);
-      return;
-    }
-
     const weightText = formatWeight(cs.fontWeight || "-");
     const size = cs.fontSize || "-";
     const letterSpacing = cs.letterSpacing || "-";
@@ -1882,10 +2141,8 @@
 
     // 1. Update Header (Font Name + FORCED badge if applicable)
     rowsEl.name.textContent = familyResolved;
-    // Remove any existing forced badge first
     const existingBadge = rowsEl.name.querySelector(".mode-badge");
     if (existingBadge) existingBadge.remove();
-    // Add FORCED badge if fallback detection was used
     if (usedForcedMode) {
       const badge = document.createElement("span");
       badge.className = "mode-badge";
@@ -1893,14 +2150,9 @@
       badge.title = "Detected using fallback strategy (Shadow DOM pierce or caret detection)";
       rowsEl.name.appendChild(badge);
     }
-    // Apply the font to the header itself for a live preview
-    rowsEl.name.style.fontFamily = `"${familyResolved}", system - ui, sans - serif`;
+    rowsEl.name.style.fontFamily = `"${familyResolved}", system-ui, sans-serif`;
 
     // 2. Update Actions (Search Button)
-    // Clear previous actions except the close button (which is static)
-    // Actually, we can just append the search button if it doesn't exist, or re-create it.
-    // Simpler: Clear actions container and re-add Close button? No, Close button is static.
-    // Let's just manage the search button specifically.
     let searchBtn = rowsEl.actions.querySelector("#fs-search-btn");
     if (!searchBtn) {
       searchBtn = document.createElement("button");
@@ -1929,11 +2181,10 @@
       svg.appendChild(circle);
       svg.appendChild(line);
       searchBtn.appendChild(svg);
-      rowsEl.actions.insertBefore(searchBtn, rowsEl.actions.firstChild); // Insert before Close button
+      rowsEl.actions.insertBefore(searchBtn, rowsEl.actions.firstChild);
     }
 
-    // Update search button listeners (clone to remove old listeners or just update handler?)
-    // Cloning is safer to avoid duplicate listeners
+    // Clone to remove old listeners
     const newSearchBtn = searchBtn.cloneNode(true);
     searchBtn.replaceWith(newSearchBtn);
     searchBtn = newSearchBtn;
@@ -1948,19 +2199,16 @@
     });
 
     // 3. Update Grid Metrics
-    rowsEl.grid.replaceChildren(); // Clear grid
+    rowsEl.grid.replaceChildren();
 
     const addMetric = (label, value) => {
       const cell = document.createElement("div");
       cell.className = "cell";
-
       const lbl = document.createElement("label");
       lbl.textContent = label;
-
       const val = document.createElement("div");
       val.className = "value";
       val.textContent = value;
-
       cell.appendChild(lbl);
       cell.appendChild(val);
       rowsEl.grid.appendChild(cell);
@@ -1976,7 +2224,6 @@
     // 4. Update Color Section
     rowsEl.color.replaceChildren();
 
-    // Left: Identity
     const identity = document.createElement("div");
     identity.className = "color-identity";
 
@@ -1991,38 +2238,40 @@
     identity.appendChild(miniSwatch);
     identity.appendChild(hexValue);
 
-    // Right: Actions
     const actions = document.createElement("div");
     actions.className = "copy-actions";
 
-    // Helper to create copy buttons
     const createCopyBtn = (label, textToCopy) => {
       const btn = document.createElement("button");
       btn.className = "copy-btn";
       btn.textContent = label;
-      btn.addEventListener("click", (ev) => {
-        ev.stopPropagation(); // prevent closing if we had that logic
-        navigator.clipboard?.writeText(textToCopy)
-          .then(() => toast(`Copied ${label}`, ev.clientX, ev.clientY))
-          .catch(() => toast("Failed", ev.clientX, ev.clientY));
+      btn.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        try {
+          if (navigator.clipboard) {
+            await navigator.clipboard.writeText(textToCopy);
+            toast(`Copied ${label}`, ev.clientX, ev.clientY);
+          } else {
+            toast("Failed", ev.clientX, ev.clientY);
+          }
+        } catch {
+          toast("Failed", ev.clientX, ev.clientY);
+        }
       });
       return btn;
     };
 
-    // Prepare formats
     const rgb = parseHexToRgb(colorHex) || [0, 0, 0];
     const rgbStr = `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
     const hsl = rgbToHsl(rgb[0], rgb[1], rgb[2]);
     const hslStr = `hsl(${hsl[0]}, ${hsl[1]}%, ${hsl[2]}%)`;
 
-    // Simple CMYK conversion
-    const r = rgb[0] / 255, g = rgb[1] / 255, b = rgb[2] / 255;
-    let k = 1 - Math.max(r, g, b);
-    let c = (1 - r - k) / (1 - k) || 0;
-    let m = (1 - g - k) / (1 - k) || 0;
-    let y = (1 - b - k) / (1 - k) || 0;
-    // Round to percentages
-    const cmykStr = `cmyk(${Math.round(c * 100)}%, ${Math.round(m * 100)}%, ${Math.round(y * 100)}%, ${Math.round(k * 100)}%)`;
+    const cr = rgb[0] / 255, cg = rgb[1] / 255, cb = rgb[2] / 255;
+    const ck = 1 - Math.max(cr, cg, cb);
+    const cc = (1 - cr - ck) / (1 - ck) || 0;
+    const cm = (1 - cg - ck) / (1 - ck) || 0;
+    const cy = (1 - cb - ck) / (1 - ck) || 0;
+    const cmykStr = `cmyk(${Math.round(cc * 100)}%, ${Math.round(cm * 100)}%, ${Math.round(cy * 100)}%, ${Math.round(ck * 100)}%)`;
 
     actions.appendChild(createCopyBtn("HEX", colorHex));
     actions.appendChild(createCopyBtn("RGB", rgbStr));
@@ -2032,32 +2281,64 @@
     rowsEl.color.appendChild(identity);
     rowsEl.color.appendChild(actions);
 
-    lastClick = { x: e.clientX, y: e.clientY };
-    positionPopup(lastClick.x, lastClick.y);
+    lastClick = { x, y };
+    positionPopup(x, y);
     if (el && el !== document.body) showHighlight(el);
   };
 
   const onKey = (e) => { if (e.key === "Escape") stop(); };
 
-  // lifecycle
+  // ========== LIFECYCLE ==========
   const start = () => {
     document.documentElement.classList.add("fontseek-picking");
     showExit();
-    clickHandler = (ev) => onInteraction(ev);
+
+    // 1. Force pointer-events and crosshair cursor globally during picking
+    pointerEventsStyleEl = document.createElement("style");
+    pointerEventsStyleEl.textContent = `
+      * { cursor: crosshair !important; }
+      #fs-exit, #fs-exit *, #fs-highlight, #fs-hover-highlight { cursor: pointer !important; }
+      p, span, h1, h2, h3, h4, h5, h6, a, li, button, label, strong, em, b, i { pointer-events: auto !important; }
+    `;
+    document.documentElement.appendChild(pointerEventsStyleEl);
+
+    // 2. Create the hover highlight shield
+    createHoverHighlight();
+
+    // 3. Patch event prototypes (secondary defense)
+    patchEvents();
+
+    // 4. Start self-defense observer (protect our UI from removal)
+    startSelfDefense();
+
+    // 5. Window event listeners
     keyHandler = (ev) => onKey(ev);
-
-    // Aggressive blocking: capture click, mousedown, mouseup, pointerdown, pointerup
-    // Attach to WINDOW to intercept before document/body listeners
-    const opts = { capture: true, passive: false };
-    window.addEventListener("click", clickHandler, opts);
-    window.addEventListener("mousedown", clickHandler, opts);
-    window.addEventListener("mouseup", clickHandler, opts);
-    window.addEventListener("pointerdown", clickHandler, opts);
-    window.addEventListener("pointerup", clickHandler, opts);
-
     window.addEventListener("keydown", keyHandler, true);
+
+    mouseMoveHandler = (ev) => onMouseMove(ev);
+    window.addEventListener("mousemove", mouseMoveHandler, true);
+
+    windowClickHandler = (ev) => onWindowClick(ev);
+    window.addEventListener("click", windowClickHandler, true);
   };
+
   var stop = () => {
+    // 1. Remove forced pointer-events and cursor styles
+    if (pointerEventsStyleEl) {
+      pointerEventsStyleEl.remove();
+      pointerEventsStyleEl = null;
+    }
+
+    // 2. Remove hover highlight
+    destroyHoverHighlight();
+
+    // 3. Stop self-defense
+    stopSelfDefense();
+
+    // 4. Restore native event methods
+    unpatchEvents();
+
+    // 5. Remove UI elements
     if (popupHost) popupHost.remove();
     popupHost = popupRoot = popupCard = rowsEl = null;
     if (allFontsHost) allFontsHost.remove();
@@ -2067,14 +2348,10 @@
     highlightEl?.remove(); highlightEl = null;
     document.documentElement.classList.remove("fontseek-picking");
 
-    const opts = { capture: true, passive: false };
-    window.removeEventListener("click", clickHandler, opts);
-    window.removeEventListener("mousedown", clickHandler, opts);
-    window.removeEventListener("mouseup", clickHandler, opts);
-    window.removeEventListener("pointerdown", clickHandler, opts);
-    window.removeEventListener("pointerup", clickHandler, opts);
-
+    // 6. Remove window listeners
     window.removeEventListener("keydown", keyHandler, true);
+    window.removeEventListener("mousemove", mouseMoveHandler, true);
+    window.removeEventListener("click", windowClickHandler, true);
     window.__FS_ACTIVE__ = false; window.__FS_API__ = null;
   };
 
